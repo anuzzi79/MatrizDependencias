@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Consulta de Entidades Ligadas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #eef2f5;
+            margin: 0;
+            padding: 0;
+        }
+
+        .box {
+            max-width: 500px;
+            margin: 80px auto;
+            padding: 1.5rem;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 1.4rem;
+            text-align: center;
+            color: #333;
+        }
+
+        .search {
+            display: flex;
+            gap: 0.5rem;
+            margin: 1rem 0;
+        }
+
+        #entityInput {
+            flex: 1;
+            padding: 0.6rem;
+            font-size: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        #searchBtn {
+            padding: 0.6rem 1rem;
+            font-size: 1rem;
+            background: #2a5298;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #searchBtn:hover {
+            background: #1e3c72;
+        }
+
+        #result {
+            margin-top: 1rem;
+            line-height: 1.5;
+        }
+
+        #result ul {
+            padding-left: 1.2rem;
+        }
+
+        #result li {
+            margin: 0.3rem 0;
+        }
+
+        .clickable {
+            cursor: pointer;
+            color: #2a5298;
+            text-decoration: underline;
+        }
+
+        .no-results {
+            color: #c0392b;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="box">
+        <h1>Entidades Ligadas</h1>
+
+        <div class="search">
+            <input type="text" id="entityInput" placeholder="Digite a entidade (ex: System)"
+                onkeydown="if(event.key==='Enter') showLinkedEntities();" />
+            <button id="searchBtn" onclick="showLinkedEntities()">
+                Buscar
+            </button>
+        </div>
+
+        <div id="result">
+            <p class="no-results">Carregando dados…</p>
+        </div>
+    </div>
+
+    <script>
+        let data = [];
+
+        // 1) Carrega JSON automaticamente (sem cache)
+        fetch('dependency_data.json', { cache: 'no-store' })
+            .then(r => {
+                if (!r.ok) throw new Error('Arquivo JSON não encontrado');
+                return r.json();
+            })
+            .then(json => {
+                data = json;
+                document.getElementById('result').innerHTML =
+                    '<p>Dados carregados! Digite uma entidade e pressione Enter ou Buscar.</p>';
+            })
+            .catch(e => {
+                document.getElementById('result').innerHTML =
+                    `<p class="no-results">Erro ao carregar JSON: ${e.message}</p>`;
+            });
+
+        // 2) Função de busca e navegação clicável
+        function showLinkedEntities(name) {
+            const resDiv = document.getElementById('result');
+            resDiv.innerHTML = '';
+
+            // determina qual entidade buscar
+            const ent = name
+                ? name
+                : document.getElementById('entityInput').value.trim();
+
+            if (!ent) {
+                return resDiv.innerHTML = '<p class="no-results">Digite uma entidade.</p>';
+            }
+            document.getElementById('entityInput').value = ent;
+
+            // encontra a linha correspondente
+            const row = data.find(r => String(r.Entity).toLowerCase() === ent.toLowerCase());
+            if (!row) {
+                return resDiv.innerHTML =
+                    `<p class="no-results">Entidade "<strong>${ent}</strong>" não encontrada.</p>`;
+            }
+
+            // coleta todas as colunas (exceto Entity) que possuam valor não vazio
+            const linked = Object.keys(row)
+                .filter(k => k !== 'Entity' && String(row[k]).trim() !== '');
+
+            if (!linked.length) {
+                return resDiv.innerHTML =
+                    `<p class="no-results">Nenhuma entidade ligada a "<strong>${ent}</strong>".</p>`;
+            }
+
+            // monta a lista, incluindo valor específico quando diferente de "X"
+            const items = linked.map(key => {
+                const val = String(row[key]).trim();
+                const label = (val.toUpperCase() === 'X') ? key : `${key} (${val})`;
+                return `<li class="clickable"
+                   onclick="showLinkedEntities('${key.replace(/'/g, "\\'")}')">
+                 ${label}
+               </li>`;
+            }).join('');
+
+            resDiv.innerHTML = `
+        <p>Entidades ligadas a "<strong>${ent}</strong>":</p>
+        <ul>${items}</ul>
+      `;
+        }
+    </script>
+
+</body>
+
+</html>
