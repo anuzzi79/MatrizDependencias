@@ -5,18 +5,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Consulta de Entidades Ligadas</title>
+
+    <!-- html2canvas para exportar o #exportArea como PNG -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
     <style>
         body {
             font-family: Arial, sans-serif;
             background: #eef2f5;
             margin: 0;
-            padding: 0
+            padding: 0;
         }
 
         .container {
             display: grid;
             grid-template-columns: 360px 1fr 1fr;
-            /* agora 20% mais largo */
             gap: 1rem;
             height: calc(100vh - 2rem);
             padding: 1rem;
@@ -38,9 +41,17 @@
             margin-top: 0;
             font-size: 1.2rem;
             text-align: center;
-            color: #333
+            color: #333;
         }
 
+        #entityName {
+            color: #0044cc;
+            font-weight: bold;
+            text-decoration: underline;
+            font-size: 1.4rem;
+        }
+
+        /* Configuração */
         #apiSection {
             display: flex;
             gap: .5rem;
@@ -60,7 +71,6 @@
 
         #apiOkBtn {
             padding: .5rem 1rem;
-            font-size: 1rem;
             background: #c82333;
             color: #fff;
             border: none;
@@ -69,12 +79,12 @@
         }
 
         #apiOkBtn:hover {
-            background: #a71d2a
+            background: #a71d2a;
         }
 
         #entitySection {
             display: none;
-            margin-bottom: 1rem
+            margin-bottom: 1rem;
         }
 
         .search-inline {
@@ -92,7 +102,6 @@
 
         #searchBtn {
             padding: .5rem 1rem;
-            font-size: 1rem;
             background: #2a5298;
             color: #fff;
             border: none;
@@ -101,7 +110,7 @@
         }
 
         #searchBtn:hover {
-            background: #1e3c72
+            background: #1e3c72;
         }
 
         #listPanel {
@@ -118,35 +127,89 @@
         }
 
         .entity-item:hover {
-            background: #f0f0f0
+            background: #f0f0f0;
+        }
+
+        /* wrapper que ocupa coluna 2 e 3 */
+        #exportArea {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            grid-column: 2 / 4;
+            height: 100%;
+            /* sfondo uniforme grigio chiaro */
+            background: #eef2f5;
+        }
+
+        /* Resultados */
+        .results {
+            position: relative;
+            background: #fff;
+        }
+
+        #linkedTitle {
+            display: none;
+            margin-top: 0;
         }
 
         #result {
-            line-height: 1.5
+            line-height: 1.5;
         }
 
         #result ul {
-            padding-left: 1.2rem
+            padding-left: 1.2rem;
         }
 
         .clickable {
             cursor: pointer;
             color: #2a5298;
+            text-decoration: none;
+        }
+
+        .clickable:hover {
             text-decoration: underline;
         }
 
         .no-results {
-            color: #c0392b
+            color: #c0392b;
+        }
+
+        /* Export */
+        #exportBtn {
+            position: absolute;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: .8rem 1.5rem;
+            font-size: 1.1rem;
+            background: #5971cc;
+            color: #fff;
+            border: none;
+            border-radius: 24px;
+            cursor: pointer;
+        }
+
+        #exportBtn.hidden {
+            display: none;
+        }
+
+        #exportBtn:hover {
+            background: #4a5ea8;
+        }
+
+        /* Gráfico */
+        .graph {
+            background: #fff;
         }
 
         .graph svg {
             width: 100%;
-            height: 100%
+            height: 100%;
         }
 
         .graph svg circle,
         .graph svg text {
-            cursor: pointer
+            cursor: pointer;
         }
     </style>
 </head>
@@ -155,36 +218,35 @@
 
     <div class="container">
 
-        <!-- ESQUERDA: API Key + Lista -->
+        <!-- colonna 1: box -->
         <div class="box">
-            <h2>Configuração</h2>
+            <h2>Please select the entity for which you want to discover the dependencies</h2>
             <div id="apiSection">
                 <input id="apiKeyInput" type="text" placeholder="Cole sua API Key aqui" />
                 <button id="apiOkBtn">OK</button>
             </div>
-
             <div id="entitySection">
                 <div class="search-inline">
                     <input id="entityInput" type="text" placeholder="Digite ou clique" />
                     <button id="searchBtn">Buscar</button>
                 </div>
             </div>
-
             <div id="listPanel">
                 <p class="no-results">Insira sua API Key e clique em OK.</p>
             </div>
         </div>
 
-        <!-- MEIO: Resultados -->
-        <div class="results">
-            <h2>Entidades Ligadas</h2>
-            <div id="result">
-                <p class="no-results">Aguardando pesquisa…</p>
+        <!-- colonna 2+3: wrapper exportArea -->
+        <div id="exportArea">
+            <div class="results">
+                <h2 id="linkedTitle">Entities related to <span id="entityName"></span> in the Dependencies Matrix</h2>
+                <div id="result">
+                    <p class="no-results">Aguardando pesquisa…</p>
+                </div>
+                <button id="exportBtn" class="hidden">Export to PNG</button>
             </div>
+            <div class="graph" id="graph"></div>
         </div>
-
-        <!-- DIREITA: Gráfico -->
-        <div class="graph" id="graph"></div>
 
     </div>
 
@@ -200,29 +262,25 @@
         async function loadSheet() {
             const key = getApiKey();
             if (!key) throw new Error('API Key não fornecida.');
-            const range = `A${HEADER_ROW}:Z`;
-            const url = `https://sheets.googleapis.com/v4/spreadsheets/`
-                + `${SHEET_ID}/values/${encodeURIComponent(range)}?key=${key}`;
-            const res = await fetch(url);
+            const res = await fetch(
+                `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/A${HEADER_ROW}:Z?key=${key}`
+            );
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const rows = (await res.json()).values;
             const header = rows[0].slice(1);
-            const offset = START_ROW - HEADER_ROW;
-            data = rows.slice(offset).map(r => {
+            data = rows.slice(START_ROW - HEADER_ROW).map(r => {
                 const o = { Entity: r[0] || '' };
                 header.forEach((h, i) => o[h] = r[i + 1] || '');
                 return o;
             });
-            if (!data.length) throw new Error('Nenhuma entidade encontrada.');
-            document.getElementById('listPanel').innerHTML =
-                data.map(o =>
-                    `<div class="entity-item"`
-                    + ` onclick="buscar('${o.Entity.replace(/'/g, "\\'")}')">`
-                    + `${o.Entity}</div>`
-                ).join('');
+            document.getElementById('listPanel').innerHTML = data.length
+                ? data.map(o =>
+                    `<div class="entity-item" onclick="buscar('${o.Entity.replace(/'/g, "\\'")}')">${o.Entity}</div>`
+                ).join('')
+                : `<p class="no-results">Nenhuma entidade encontrada.</p>`;
         }
 
-        async function onApiOk() {
+        document.getElementById('apiOkBtn').addEventListener('click', async () => {
             try {
                 await loadSheet();
                 const inp = document.getElementById('apiKeyInput');
@@ -230,74 +288,71 @@
                 inp.style.color = '#155724';
                 document.getElementById('entitySection').style.display = 'block';
             } catch (e) {
-                document.getElementById('listPanel').innerHTML =
-                    `<p class="no-results">${e.message}</p>`;
+                document.getElementById('listPanel').innerHTML = `<p class="no-results">${e.message}</p>`;
             }
-        }
+        });
 
-        document.getElementById('apiOkBtn')
-            .addEventListener('click', onApiOk);
-
-        document.getElementById('searchBtn')
-            .addEventListener('click', () => buscar());
-
-        document.getElementById('entityInput')
-            .addEventListener('keydown', e => {
-                if (e.key === 'Enter') buscar();
-            });
+        document.getElementById('searchBtn').addEventListener('click', () => buscar());
+        document.getElementById('entityInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') buscar();
+        });
 
         function buscar(name) {
             const ent = (name || document.getElementById('entityInput').value).trim();
             const resDiv = document.getElementById('result');
             resDiv.innerHTML = '';
-            if (!ent) {
-                resDiv.innerHTML = '<p class="no-results">Digite uma entidade.</p>';
-                clearGraph();
-                return;
-            }
+            clearGraph();
+            if (!ent) return resDiv.innerHTML = '<p class="no-results">Digite uma entidade.</p>';
+
             document.getElementById('entityInput').value = ent;
-
             const row = data.find(r => r.Entity.toLowerCase() === ent.toLowerCase());
-            if (!row) {
-                resDiv.innerHTML =
-                    `<p class="no-results">Entidade "<strong>${ent}</strong>" não encontrada.</p>`;
-                clearGraph();
-                return;
-            }
+            if (!row) return resDiv.innerHTML = `<p class="no-results">Entidade "<strong>${ent}</strong>" não encontrada.</p>`;
 
-            const keys = Object.keys(row)
-                .filter(k => k !== 'Entity' && String(row[k]).trim());
-            if (!keys.length) {
-                resDiv.innerHTML =
-                    `<p class="no-results">Nenhuma dependência para "<strong>${ent}</strong>".</p>`;
-                clearGraph();
-                return;
-            }
+            const keys = Object.keys(row).filter(k => k !== 'Entity' && String(row[k]).trim());
+            if (!keys.length) return resDiv.innerHTML = `<p class="no-results">Nenhuma dependência para "<strong>${ent}</strong>".</p>`;
 
-            resDiv.innerHTML = `
-        <ul>
-          ${keys.map(k => {
-                const v = row[k],
-                    lab = String(v).toUpperCase() === 'X' ? k : `${k} (${v})`;
-                return `<li class="clickable"`
-                    + ` onclick="buscar('${k.replace(/'/g, "\\'")}')">${lab}</li>`;
-            }).join('')}
-        </ul>`;
+            document.getElementById('entityName').textContent = ent;
+            document.getElementById('linkedTitle').style.display = 'block';
+
+            resDiv.innerHTML = `<ul>${keys.map(k => {
+                const v = row[k], lab = String(v).toUpperCase() === 'X' ? k : `${k} (${v})`;
+                return `<li class="clickable" onclick="buscar('${k.replace(/'/g, "\\'")}')">${lab}</li>`;
+            }).join('')}</ul>`;
+
             drawGraph(ent, keys);
+            showExport();
         }
 
         function clearGraph() {
             document.getElementById('graph').innerHTML = '';
         }
+        function showExport() {
+            document.getElementById('exportBtn').classList.remove('hidden');
+        }
+        function hideExport() {
+            document.getElementById('exportBtn').classList.add('hidden');
+        }
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const btn = document.getElementById('exportBtn');
+            btn.style.display = 'none';
+            html2canvas(document.getElementById('exportArea'), {
+                backgroundColor: '#eef2f5'
+            }).then(canvas => {
+                btn.style.display = '';
+                const a = document.createElement('a');
+                a.href = canvas.toDataURL('image/png');
+                a.download = 'matriz_relacoes.png';
+                a.click();
+            });
+        });
 
         function drawGraph(center, nodes) {
             const DIV = document.getElementById('graph');
             DIV.innerHTML = '';
-            const W = DIV.clientWidth, H = DIV.clientHeight || 500,
-                cx = W / 2, cy = H / 2, R = Math.min(W, H) / 3,
-                r0 = 60, r1 = 40;
-            const NS = 'http://www.w3.org/2000/svg',
-                svg = document.createElementNS(NS, 'svg');
+            const W = DIV.clientWidth, H = DIV.clientHeight || 500;
+            const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 3, r0 = 60, r1 = 40;
+            const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
             svg.setAttribute('width', W);
             svg.setAttribute('height', H);
             DIV.appendChild(svg);
@@ -306,53 +361,49 @@
                 const ang = 2 * Math.PI * i / nodes.length;
                 const x = cx + R * Math.cos(ang), y = cy + R * Math.sin(ang);
                 const ln = document.createElementNS(NS, 'line');
-                ln.setAttribute('x1', cx); ln.setAttribute('y1', cy);
-                ln.setAttribute('x2', x); ln.setAttribute('y2', y);
+                ln.setAttribute('x1', cx);
+                ln.setAttribute('y1', cy);
+                ln.setAttribute('x2', x);
+                ln.setAttribute('y2', y);
                 ln.setAttribute('stroke', '#888');
                 svg.appendChild(ln);
             });
 
-            function makeMultiText(text, x, y, sz, fill, fn) {
+            const c0 = document.createElementNS(NS, 'circle');
+            c0.setAttribute('cx', cx);
+            c0.setAttribute('cy', cy);
+            c0.setAttribute('r', r0);
+            c0.setAttribute('fill', '#2a5298');
+            c0.addEventListener('click', () => buscar(center));
+            svg.appendChild(c0);
+            makeText(center, cx, cy + 5, 14, '#fff', () => buscar(center));
+
+            nodes.forEach((k, i) => {
+                const ang = 2 * Math.PI * i / nodes.length;
+                const x = cx + R * Math.cos(ang), y = cy + R * Math.sin(ang);
+                const c1 = document.createElementNS(NS, 'circle');
+                c1.setAttribute('cx', x);
+                c1.setAttribute('cy', y);
+                c1.setAttribute('r', r1);
+                c1.setAttribute('fill', '#fff');
+                c1.setAttribute('stroke', '#2a5298');
+                c1.addEventListener('click', () => buscar(k));
+                svg.appendChild(c1);
+                makeText(k, x, y + 5, 12, '#2a5298', () => buscar(k));
+            });
+
+            function makeText(txt, x, y, sz, fill, fn) {
                 const g = document.createElementNS(NS, 'text');
-                g.setAttribute('x', x); g.setAttribute('y', y);
+                g.setAttribute('x', x);
+                g.setAttribute('y', y);
                 g.setAttribute('text-anchor', 'middle');
                 g.setAttribute('fill', fill);
                 g.setAttribute('font-size', sz + 'px');
                 g.style.cursor = 'pointer';
                 g.addEventListener('click', fn);
-                const parts = text.split('>');
-                parts.forEach((p, idx) => {
-                    let ln = p.trim();
-                    if (idx < parts.length - 1) ln += ' >';
-                    const tspan = document.createElementNS(NS, 'tspan');
-                    tspan.textContent = ln;
-                    tspan.setAttribute('x', x);
-                    tspan.setAttribute('dy', idx === 0 ? 0 : sz * 1.2);
-                    g.appendChild(tspan);
-                });
+                g.textContent = txt;
                 svg.appendChild(g);
             }
-
-            const c0 = document.createElementNS(NS, 'circle');
-            c0.setAttribute('cx', cx); c0.setAttribute('cy', cy); c0.setAttribute('r', r0);
-            c0.setAttribute('fill', '#2a5298');
-            c0.addEventListener('click', () => buscar(center));
-            svg.appendChild(c0);
-            makeMultiText(center, cx, cy + 5, 14, '#fff', () => buscar(center));
-
-            nodes.forEach((k, i) => {
-                const ang = 2 * Math.PI * i / nodes.length;
-                const x = cx + R * Math.cos(ang), y = cy + R * Math.sin(ang);
-
-                const c1 = document.createElementNS(NS, 'circle');
-                c1.setAttribute('cx', x); c1.setAttribute('cy', y); c1.setAttribute('r', r1);
-                c1.setAttribute('fill', '#fff');
-                c1.setAttribute('stroke', '#2a5298');
-                c1.addEventListener('click', () => buscar(k));
-                svg.appendChild(c1);
-
-                makeMultiText(k, x, y + 5, 12, '#2a5298', () => buscar(k));
-            });
         }
     </script>
 </body>
