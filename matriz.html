@@ -137,7 +137,6 @@
             gap: 1rem;
             grid-column: 2 / 4;
             height: 100%;
-            /* sfondo uniforme grigio chiaro */
             background: #eef2f5;
         }
 
@@ -154,6 +153,11 @@
 
         #result {
             line-height: 1.5;
+        }
+
+        /* aumenta um pouco a fonte da lista de resultados*/
+        #result ul li {
+            font-size: 1.2rem;
         }
 
         #result ul {
@@ -211,14 +215,19 @@
         .graph svg text {
             cursor: pointer;
         }
+
+        /* Stile per raw entities */
+        .entity-item.raw {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
     </style>
 </head>
 
 <body>
-
     <div class="container">
 
-        <!-- colonna 1: box -->
+        <!-- colonna do browser 1: box -->
         <div class="box">
             <h2>Please select the entity for which you want to discover the dependencies</h2>
             <div id="apiSection">
@@ -236,7 +245,7 @@
             </div>
         </div>
 
-        <!-- colonna 2+3: wrapper exportArea -->
+        <!-- colonna 2+3: wrapper exportArea (ou seja a área de exportação) -->
         <div id="exportArea">
             <div class="results">
                 <h2 id="linkedTitle">Entities related to <span id="entityName"></span> in the Dependencies Matrix</h2>
@@ -252,7 +261,16 @@
 
     <script>
         const SHEET_ID = '16xGc25id9YdFgzDEF5Mgxe1OycDC8WaVQS06u5Juz6s';
-        const HEADER_ROW = 2, START_ROW = 5;
+        const HEADER_ROW = 2, START_ROW = 4;
+        // Aqui aquelas entidades especiais que serão tratadas com enfase, pois titulos de secções
+        const RAW_ENTITIES = [
+            'Entities',
+            'Screens',
+            'Main Menu > Administration',
+            'Project',
+            'Background Processes',
+            'Mobile App'
+        ];
         let data = [];
 
         function getApiKey() {
@@ -263,7 +281,7 @@
             const key = getApiKey();
             if (!key) throw new Error('API Key não fornecida.');
             const res = await fetch(
-                `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/A${HEADER_ROW}:Z?key=${key}`
+                `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/A${HEADER_ROW}:BQ?key=${key}`
             );
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const rows = (await res.json()).values;
@@ -273,13 +291,26 @@
                 header.forEach((h, i) => o[h] = r[i + 1] || '');
                 return o;
             });
+
+            // Render da lista esquerda aquela naqual você pode interrogar a entidade
             document.getElementById('listPanel').innerHTML = data.length
-                ? data.map(o =>
-                    `<div class="entity-item" onclick="buscar('${o.Entity.replace(/'/g, "\\'")}')">${o.Entity}</div>`
-                ).join('')
+                ? data.map(o => {
+                    const name = o.Entity;
+                    const relatedCount = Object.keys(o)
+                        .filter(k => k !== 'Entity' && String(o[k]).trim())
+                        .length;
+                    const isRawButNoDeps = name === 'Project'
+                        ? relatedCount === 0
+                        : RAW_ENTITIES.includes(name);
+                    const extraClass = isRawButNoDeps ? ' raw' : '';
+                    return `<div class="entity-item${extraClass}" onclick="buscar('${name.replace(/'/g, "\\'")}')">${name}</div>`;
+                }).join('')
                 : `<p class="no-results">Nenhuma entidade encontrada.</p>`;
         }
 
+        // Ao clicar em “OK”, tenta carregar a planilha via API.
+        // Se der certo, pinta o campo de API Key de verde e exibe a área de busca de entidades.
+        // Se der erro, mostra a mensagem dentro do painel de lista.
         document.getElementById('apiOkBtn').addEventListener('click', async () => {
             try {
                 await loadSheet();
@@ -291,12 +322,17 @@
                 document.getElementById('listPanel').innerHTML = `<p class="no-results">${e.message}</p>`;
             }
         });
-
+        // Quando o usuário clica no botão “Buscar”, executa a função de busca
         document.getElementById('searchBtn').addEventListener('click', () => buscar());
+        
+        // Quando o usuário pressiona Enter dentro do campo de texto, também executa a função de busca
         document.getElementById('entityInput').addEventListener('keydown', e => {
             if (e.key === 'Enter') buscar();
         });
 
+        // Função principal de busca: limpa resultados antigos, procura a entidade no array `data`,
+        // exibe mensagens de erro se não encontrar ou não houver dependências,
+        // atualiza título, renderiza lista de dependências e gera o grafo SVG.
         function buscar(name) {
             const ent = (name || document.getElementById('entityInput').value).trim();
             const resDiv = document.getElementById('result');
@@ -309,7 +345,7 @@
             if (!row) return resDiv.innerHTML = `<p class="no-results">Entidade "<strong>${ent}</strong>" não encontrada.</p>`;
 
             const keys = Object.keys(row).filter(k => k !== 'Entity' && String(row[k]).trim());
-            if (!keys.length) return resDiv.innerHTML = `<p class="no-results">Nenhuma dependência para "<strong>${ent}</strong>".</p>`;
+            if (!keys.length) return resDiv.innerHTML = `<p class="no-results">Nenhuma dipendenza para "<strong>${ent}</strong>".</p>`;
 
             document.getElementById('entityName').textContent = ent;
             document.getElementById('linkedTitle').style.display = 'block';
@@ -322,17 +358,24 @@
             drawGraph(ent, keys);
             showExport();
         }
-
+        // Limpa o container do gráfico, removendo todo o SVG antes de desenhar um novo
         function clearGraph() {
             document.getElementById('graph').innerHTML = '';
         }
+
+        // Exibe o botão de exportação (mostra-o quando o gráfico está pronto)
         function showExport() {
             document.getElementById('exportBtn').classList.remove('hidden');
         }
+
+        // Oculta o botão de exportação PNG
         function hideExport() {
             document.getElementById('exportBtn').classList.add('hidden');
         }
 
+        // Quando o botão “Export to PNG” é clicado, esconde-o temporariamente, captura as áreas central e direita como uma imagem PNG usando html2canvas,
+        // restaura o botão e força o download do arquivo gerado chamado “matriz_relacoes.png”
+        // Mediante este "jeitinho" consegui tirar o botão Export_to_PNG do print do PNG ;)
         document.getElementById('exportBtn').addEventListener('click', () => {
             const btn = document.getElementById('exportBtn');
             btn.style.display = 'none';
@@ -347,65 +390,114 @@
             });
         });
 
+        // Cria texto SVG com quebra automática de linha e centraliza o 
+        // bloco verticalmente no parâmetro y
+        function makeWrappedText(txt, x, y, maxLen, fontSize, fill, onClick) {
+                const NS = 'http://www.w3.org/2000/svg';
+                // 1) Crie  <text> sem y inicial
+                const textEl = document.createElementNS(NS, 'text');
+                textEl.setAttribute('x', x);
+                textEl.setAttribute('text-anchor', 'middle');
+                textEl.setAttribute('fill', fill);
+                textEl.setAttribute('font-size', fontSize + 'px');
+                textEl.style.cursor = 'pointer';
+                if (onClick) textEl.addEventListener('click', onClick);
+
+                // 2) quebra txt em linhas com base no maxLen
+                const words = txt.split(' ');
+                const lines = [];
+                let line = '';
+                words.forEach(w => {
+                    const test = line ? line + ' ' + w : w;
+                    if (test.length > maxLen && line) {
+                        lines.push(line);
+                        line = w;
+                    } else {
+                        line = test;
+                    }
+                });
+                lines.push(line);
+
+                // 3) calcula posição inicial (centro do bloco = y)
+                const lineHeight = fontSize * 1.2;
+                const blockHeight = lines.length * lineHeight;
+                const startY = y - (blockHeight / 2) + (lineHeight / 2);
+
+                // 4) crie un <tspan> por cada linha de txto, posizionata assolutamente
+                lines.forEach((l, i) => {
+                    const tspan = document.createElementNS(NS, 'tspan');
+                    tspan.setAttribute('x', x);
+                    tspan.setAttribute('y', startY + i * lineHeight);
+                    tspan.textContent = l;
+                    textEl.appendChild(tspan);
+                });
+
+                // 5) appendi to SVG existente
+                const svg = document.getElementById('graph').querySelector('svg');
+                svg.appendChild(textEl);
+        }
+
+
+        // Desenha o grafo de dependências SVG:
+            // 1) Limpa o container #graph e obtém dimensões
+            // 2) Cria um elemento <svg> das dimensões atuais
+            // 3) Desenha linhas (arestas) do nó central para cada nó periférico
+            // 4) Desenha o círculo central clicável e seu texto centralizado
+            // 5) Desenha cada nó periférico clicável com seu texto centralizado via makeWrappedText
         function drawGraph(center, nodes) {
-            const DIV = document.getElementById('graph');
-            DIV.innerHTML = '';
-            const W = DIV.clientWidth, H = DIV.clientHeight || 500;
-            const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 3, r0 = 60, r1 = 40;
-            const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
-            svg.setAttribute('width', W);
-            svg.setAttribute('height', H);
-            DIV.appendChild(svg);
+                const DIV = document.getElementById('graph');
+                DIV.innerHTML = '';
+                const W = DIV.clientWidth, H = DIV.clientHeight || 500;
+                const cx = W / 2, cy = H / 2, R = Math.min(W, H) / 3, r0 = 60, r1 = 40;
+                const NS = 'http://www.w3.org/2000/svg',
+                    svg = document.createElementNS(NS, 'svg');
+                svg.setAttribute('width', W);
+                svg.setAttribute('height', H);
+                DIV.appendChild(svg);
 
-            nodes.forEach((k, i) => {
-                const ang = 2 * Math.PI * i / nodes.length;
-                const x = cx + R * Math.cos(ang), y = cy + R * Math.sin(ang);
-                const ln = document.createElementNS(NS, 'line');
-                ln.setAttribute('x1', cx);
-                ln.setAttribute('y1', cy);
-                ln.setAttribute('x2', x);
-                ln.setAttribute('y2', y);
-                ln.setAttribute('stroke', '#888');
-                svg.appendChild(ln);
-            });
+                // linhas
+                nodes.forEach((k, i) => {
+                    const ang = 2 * Math.PI * i / nodes.length;
+                    const x = cx + R * Math.cos(ang),
+                        y = cy + R * Math.sin(ang);
+                    const ln = document.createElementNS(NS, 'line');
+                    ln.setAttribute('x1', cx);
+                    ln.setAttribute('y1', cy);
+                    ln.setAttribute('x2', x);
+                    ln.setAttribute('y2', y);
+                    ln.setAttribute('stroke', '#888');
+                    ln.setAttribute('stroke-width', '1.5'); 
+                    svg.appendChild(ln);
+                });
 
-            const c0 = document.createElementNS(NS, 'circle');
-            c0.setAttribute('cx', cx);
-            c0.setAttribute('cy', cy);
-            c0.setAttribute('r', r0);
-            c0.setAttribute('fill', '#2a5298');
-            c0.addEventListener('click', () => buscar(center));
-            svg.appendChild(c0);
-            makeText(center, cx, cy + 5, 14, '#fff', () => buscar(center));
+                // circulo central + Texto centralizado
+                const c0 = document.createElementNS(NS, 'circle');
+                c0.setAttribute('cx', cx);
+                c0.setAttribute('cy', cy);
+                c0.setAttribute('r', r0);
+                c0.setAttribute('fill', '#2a5298');
+                c0.addEventListener('click', () => buscar(center));
+                svg.appendChild(c0);
+                makeWrappedText(center, cx, cy, 14, 14, '#fff', () => buscar(center));
 
-            nodes.forEach((k, i) => {
-                const ang = 2 * Math.PI * i / nodes.length;
-                const x = cx + R * Math.cos(ang), y = cy + R * Math.sin(ang);
-                const c1 = document.createElementNS(NS, 'circle');
-                c1.setAttribute('cx', x);
-                c1.setAttribute('cy', y);
-                c1.setAttribute('r', r1);
-                c1.setAttribute('fill', '#fff');
-                c1.setAttribute('stroke', '#2a5298');
-                c1.addEventListener('click', () => buscar(k));
-                svg.appendChild(c1);
-                makeText(k, x, y + 5, 12, '#2a5298', () => buscar(k));
-            });
-
-            function makeText(txt, x, y, sz, fill, fn) {
-                const g = document.createElementNS(NS, 'text');
-                g.setAttribute('x', x);
-                g.setAttribute('y', y);
-                g.setAttribute('text-anchor', 'middle');
-                g.setAttribute('fill', fill);
-                g.setAttribute('font-size', sz + 'px');
-                g.style.cursor = 'pointer';
-                g.addEventListener('click', fn);
-                g.textContent = txt;
-                svg.appendChild(g);
-            }
+                // nós perifericos + texto cetrnalizados
+                nodes.forEach((k, i) => {
+                    const ang = 2 * Math.PI * i / nodes.length;
+                    const x = cx + R * Math.cos(ang),
+                        y = cy + R * Math.sin(ang);
+                    const c1 = document.createElementNS(NS, 'circle');
+                    c1.setAttribute('cx', x);
+                    c1.setAttribute('cy', y);
+                    c1.setAttribute('r', r1);
+                    c1.setAttribute('fill', '#fff');
+                    c1.setAttribute('stroke', '#2a5298');
+                    c1.addEventListener('click', () => buscar(k));
+                    svg.appendChild(c1);
+                    makeWrappedText(k, x, y, 14, 12, '#2a5298', () => buscar(k));
+                });
         }
     </script>
+    
 </body>
 
 </html>
