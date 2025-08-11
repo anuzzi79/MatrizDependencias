@@ -260,6 +260,12 @@
     </div>
 
     <script>
+        if (window.localStorage.getItem('apiKey')) {
+            document.getElementById('apiKeyInput').value = window.localStorage.getItem('apiKey');
+        }
+    </script>
+
+    <script>
         const SHEET_ID = '16xGc25id9YdFgzDEF5Mgxe1OycDC8WaVQS06u5Juz6s';
         const HEADER_ROW = 2, START_ROW = 4;
         // Aqui aquelas entidades especiais que serão tratadas com enfase, pois titulos de secções
@@ -280,10 +286,15 @@
         async function loadSheet() {
             const key = getApiKey();
             if (!key) throw new Error('API Key não fornecida.');
+
+            // Salva a API Key no localStorage para uso futuro
+            window.localStorage.setItem('apiKey', key);
+
             const res = await fetch(
                 `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/A${HEADER_ROW}:BQ?key=${key}`
             );
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
             const rows = (await res.json()).values;
             const header = rows[0].slice(1);
             data = rows.slice(START_ROW - HEADER_ROW).map(r => {
